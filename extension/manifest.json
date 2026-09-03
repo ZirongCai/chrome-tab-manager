@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Tab Manager",
+  "version": "1.0.0",
+  "description": "Manage your tabs with an Arc-style overlay.",
+  "minimum_chrome_version": "114",
+  "permissions": ["tabs", "activeTab", "storage", "bookmarks", "tabGroups", "history", "scripting"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": {
+    "default_title": "Tab Manager"
+  },
+  "commands": {
+    "quick-search": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+K",
+        "mac": "Command+Shift+K"
+      },
+      "description": "Quick search"
+    },
+    "create-new-group": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+L",
+        "mac": "Command+Shift+L"
+      },
+      "description": "Create new Group"
+    },
+    "pin-current-page": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+P",
+        "mac": "Command+Shift+P"
+      },
+      "description": "Pin current page"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
