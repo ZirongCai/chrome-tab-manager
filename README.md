@@ -1,4 +1,4 @@
-# Tab Out
+# Tab Manager
 
 **Arc-inspired Chrome extension for managing tabs and bookmarks.**
 
