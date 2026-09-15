@@ -33,13 +33,6 @@
         "mac": "Command+Shift+P"
       },
       "description": "Pin current page"
-    },
-    "search-open-tabs": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+F",
-        "mac": "Command+Shift+F"
-      },
-      "description": "Search open tabs only"
     }
   },
   "icons": {

@@ -333,16 +333,7 @@ chrome.commands.onCommand.addListener(async (command) => {
     } catch (error) {
       console.error('[Background] Error in pin-current-page command:', error);
     }
-    } else if (command === 'search-open-tabs') {
-    try {
-      // Open search overlay in tabs-only mode
-      const extensionId = chrome.runtime.id;
-      const url = `chrome-extension://${extensionId}/overlay.html?searchTabsOnly=true`;
-      await chrome.tabs.create({ url });
-    } catch (error) {
-      // Silently fail
-    }
-  } else if (command === 'create-new-group') {
+    } else if (command === 'create-new-group') {
     try {
       console.log('[Background] create-new-group command triggered');
 

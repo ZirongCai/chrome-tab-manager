@@ -37,13 +37,6 @@ const escapeHtml = DOMHelpers.escapeHtml;
 let searchInstance = null;
 
 /**
- * @type {boolean}
- * True when search is restricted to open tabs only (via URL param or toggle).
- * Mutated by: init() (from URL params), toggleTabsOnlyMode()
- */
-let tabsOnlyMode = false;
-
-/**
  * @type {number}
  * Currently selected item index in search results. -1 means no selection.
  * Mutated by: handleSearch (reset), arrow keys (increment/decrement), updateSelection
@@ -230,10 +223,6 @@ function getDisplayName(domain) {
 }
 
 async function init() {
-  // Check URL params for tabs-only mode
-  const urlParams = new URLSearchParams(window.location.search);
-  tabsOnlyMode = urlParams.get('searchTabsOnly') === 'true';
-
   // Load custom domain names first
   await loadCustomDomainNames();
 
@@ -260,11 +249,6 @@ async function init() {
 
   // Initialize shortcuts footer for search mode
   updateShortcutsFooter('search');
-
-  // Update UI for tabs-only mode if active
-  if (tabsOnlyMode) {
-    updateSearchInputStyle();
-  }
 }
 
 /**
@@ -414,17 +398,7 @@ function setupSearch() {
     }
 
     // Normal search
-    let results = await searchInstance.search(query);
-
-    // Filter to tabs only if in tabs-only mode
-    if (tabsOnlyMode) {
-      results = results
-        .map(group => ({
-          ...group,
-          items: group.items.filter(item => item.type === 'tab')
-        }))
-        .filter(group => group.items.length > 0);
-    }
+    const results = await searchInstance.search(query);
 
     if (results.length === 0) {
       searchResults.innerHTML = '<div class="empty">No results found</div>';
@@ -1051,22 +1025,6 @@ function updateSearchInputStyle() {
       container.insertBefore(indicator, searchInput);
       searchInput.placeholder = command.placeholder;
     }
-  } else if (tabsOnlyMode) {
-    const indicator = document.createElement('div');
-    indicator.id = 'tabsOnlyIndicator';
-    indicator.className = 'tabs-only-indicator';
-    indicator.innerHTML = `
-      <span class="tabs-only-badge">Tabs Only</span>
-      <button class="tabs-only-clear" title="Search all (tabs, bookmarks, history)">×</button>
-    `;
-    container.insertBefore(indicator, searchInput);
-    searchInput.placeholder = 'Search open tabs...';
-
-    // Add click handler for clear button
-    indicator.querySelector('.tabs-only-clear').addEventListener('click', (e) => {
-      e.stopPropagation();
-      toggleTabsOnlyMode(false);
-    });
   } else {
     searchInput.placeholder = 'Search tabs, bookmarks, history... (Try /)';
   }
@@ -1101,36 +1059,6 @@ async function executeCommand(commandName, query) {
       <p>Unknown command: ${commandName}</p>
     </div>
   `;
-}
-
-/**
- * Toggle tabs-only search mode
- * @param {boolean} enabled - Whether to enable tabs-only mode
- */
-async function toggleTabsOnlyMode(enabled) {
-  tabsOnlyMode = enabled;
-  updateSearchInputStyle();
-
-  // Re-trigger search if there's a query
-  const searchInput = document.getElementById('searchInput');
-  const query = searchInput.value.trim();
-  if (query) {
-    let results = await searchInstance.search(query);
-    if (tabsOnlyMode) {
-      results = results
-        .map(group => ({
-          ...group,
-          items: group.items.filter(item => item.type === 'tab')
-        }))
-        .filter(group => group.items.length > 0);
-    }
-    const searchResults = document.getElementById('searchResults');
-    if (results.length > 0) {
-      searchResults.innerHTML = renderResults(results, query);
-    } else {
-      searchResults.innerHTML = '<div class="empty">No results found</div>';
-    }
-  }
 }
 
 /**
