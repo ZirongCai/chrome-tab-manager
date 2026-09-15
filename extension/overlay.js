@@ -37,6 +37,13 @@ const escapeHtml = DOMHelpers.escapeHtml;
 let searchInstance = null;
 
 /**
+ * @type {boolean}
+ * True when search is restricted to open tabs only (via URL param or toggle).
+ * Mutated by: init() (from URL params), toggleTabsOnlyMode()
+ */
+let tabsOnlyMode = false;
+
+/**
  * @type {number}
  * Currently selected item index in search results. -1 means no selection.
  * Mutated by: handleSearch (reset), arrow keys (increment/decrement), updateSelection
@@ -99,6 +106,20 @@ let expandedDomains = new Set();
  */
 let expandedGroups = new Set();
 
+/**
+ * @type {string}
+ * Current filter query for Browse Mode. Empty string means no filter.
+ * Mutated by: handleBrowseFilter(), clearBrowseFilter(), switchMode()
+ */
+let browseFilterQuery = '';
+
+/**
+ * @type {object|null}
+ * Fuse.js instance for Browse Mode filtering.
+ * Mutated by: initBrowseFilter()
+ */
+let browseFuseInstance = null;
+
 /* ----------------------------------------------------------------
    CACHED DATA
    ---------------------------------------------------------------- */
@@ -117,13 +138,27 @@ let customDomainNames = {};
  */
 let browseHandlersSetup = false;
 
+/**
+ * @type {boolean}
+ * Flag to prevent duplicate browse filter handler setup.
+ * Mutated by: setupBrowseFilter() (set true once)
+ */
+let browseFilterSetup = false;
+
 /* ----------------------------------------------------------------
    CONSTANTS
    ---------------------------------------------------------------- */
 
 // Available commands - extensible framework for future commands
 // To add a command: { name: 'example', icon: '🔧', description: 'Description', placeholder: 'Prompt...' }
-const COMMANDS = [];
+const COMMANDS = [
+  {
+    name: 'tabs',
+    icon: '📑',
+    description: 'Search only open tabs',
+    placeholder: 'Search open tabs...'
+  }
+];
 
 /* ================================================================
    CUSTOM DOMAIN NAMES STORAGE
@@ -195,6 +230,10 @@ function getDisplayName(domain) {
 }
 
 async function init() {
+  // Check URL params for tabs-only mode
+  const urlParams = new URLSearchParams(window.location.search);
+  tabsOnlyMode = urlParams.get('searchTabsOnly') === 'true';
+
   // Load custom domain names first
   await loadCustomDomainNames();
 
@@ -221,6 +260,11 @@ async function init() {
 
   // Initialize shortcuts footer for search mode
   updateShortcutsFooter('search');
+
+  // Update UI for tabs-only mode if active
+  if (tabsOnlyMode) {
+    updateSearchInputStyle();
+  }
 }
 
 /**
@@ -252,6 +296,13 @@ async function switchMode(mode) {
   // Update mode state
   currentMode = mode;
 
+  // Clear browse filter when switching modes
+  if (browseFilterQuery) {
+    browseFilterQuery = '';
+    const filterInput = document.getElementById('browseFilterInput');
+    if (filterInput) filterInput.value = '';
+  }
+
   // Update body class for fullscreen browse mode
   document.body.classList.toggle('browse-mode', mode === 'browse');
 
@@ -275,7 +326,13 @@ async function switchMode(mode) {
     if (!browseData) {
       await loadBrowseData();
     }
+    initBrowseFilter();
     renderBrowseMode();
+    setupBrowseFilter();
+
+    // Focus filter input
+    const filterInput = document.getElementById('browseFilterInput');
+    if (filterInput) filterInput.focus();
   }
 }
 
@@ -349,12 +406,25 @@ function setupSearch() {
 
     // Step 3: Active command mode - user has selected a command, entering their query
     if (activeCommand) {
-      // Just show what they're typing, don't search yet
+      // Perform live search for supported commands
+      if (activeCommand === 'tabs' && query.trim()) {
+        await executeCommand('tabs', query);
+      }
       return;
     }
 
     // Normal search
-    const results = await searchInstance.search(query);
+    let results = await searchInstance.search(query);
+
+    // Filter to tabs only if in tabs-only mode
+    if (tabsOnlyMode) {
+      results = results
+        .map(group => ({
+          ...group,
+          items: group.items.filter(item => item.type === 'tab')
+        }))
+        .filter(group => group.items.length > 0);
+    }
 
     if (results.length === 0) {
       searchResults.innerHTML = '<div class="empty">No results found</div>';
@@ -397,11 +467,28 @@ function setupSearch() {
         return;
       }
 
-      // If in active command mode, execute the command
+      // If in active command mode, activate selected result or execute command
       if (activeCommand) {
-        const query = searchInput.value.trim();
-        if (query) {
-          executeCommand(activeCommand, query);
+        // Check if there's a selected result to activate
+        const allItems = Array.from(searchResults.querySelectorAll('.result-group-header:not(.pinned-header), .result-item, .show-more-btn'));
+        const items = allItems.filter(item => {
+          const hiddenParent = item.closest('.result-group-hidden');
+          if (hiddenParent && hiddenParent.style.display === 'none') {
+            return false;
+          }
+          return true;
+        });
+
+        if (selectedIndex >= 0 && items[selectedIndex]) {
+          const selectedItem = items[selectedIndex];
+          if (selectedItem.classList.contains('show-more-btn')) {
+            selectedItem.click();
+          } else {
+            activateResult(selectedItem);
+          }
+        } else if (items.length > 0) {
+          // If no selection but results exist, activate first result
+          activateResult(items[0]);
         }
         return;
       }
@@ -606,8 +693,16 @@ function setupKeyboardShortcuts() {
     // Only handle when in Browse Mode
     if (currentMode !== 'browse') return;
 
-    // Escape: return to Search Mode
+    // Skip if filter input is focused - let it handle its own keys
+    const filterInput = document.getElementById('browseFilterInput');
+    const filterFocused = document.activeElement === filterInput;
+
+    // Escape: handled by filter input when focused, otherwise return to Search Mode
     if (e.key === 'Escape') {
+      if (filterFocused) {
+        // Let the filter input's own handler deal with this
+        return;
+      }
       e.preventDefault();
       switchMode('search');
       return;
@@ -634,8 +729,13 @@ function setupKeyboardShortcuts() {
       return;
     }
 
-    // Cmd+Backspace: close selected tab
+    // Cmd+Backspace: close selected tab (but not when filter input is focused)
     if ((e.metaKey || e.ctrlKey) && e.key === 'Backspace') {
+      const filterInput = document.getElementById('browseFilterInput');
+      if (document.activeElement === filterInput) {
+        // Let the default behavior handle text deletion in the input
+        return;
+      }
       e.preventDefault();
       closeBrowseSelectedTab();
       return;
@@ -938,6 +1038,8 @@ function updateSearchInputStyle() {
   // Remove existing indicators
   const existingIndicator = document.getElementById('commandModeIndicator');
   if (existingIndicator) existingIndicator.remove();
+  const existingTabsIndicator = document.getElementById('tabsOnlyIndicator');
+  if (existingTabsIndicator) existingTabsIndicator.remove();
 
   if (activeCommand) {
     const command = COMMANDS.find(cmd => cmd.name === activeCommand);
@@ -949,19 +1051,86 @@ function updateSearchInputStyle() {
       container.insertBefore(indicator, searchInput);
       searchInput.placeholder = command.placeholder;
     }
+  } else if (tabsOnlyMode) {
+    const indicator = document.createElement('div');
+    indicator.id = 'tabsOnlyIndicator';
+    indicator.className = 'tabs-only-indicator';
+    indicator.innerHTML = `
+      <span class="tabs-only-badge">Tabs Only</span>
+      <button class="tabs-only-clear" title="Search all (tabs, bookmarks, history)">×</button>
+    `;
+    container.insertBefore(indicator, searchInput);
+    searchInput.placeholder = 'Search open tabs...';
+
+    // Add click handler for clear button
+    indicator.querySelector('.tabs-only-clear').addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleTabsOnlyMode(false);
+    });
   } else {
     searchInput.placeholder = 'Search tabs, bookmarks, history... (Try /)';
   }
 }
 
 async function executeCommand(commandName, query) {
-  // Command execution placeholder for future commands
   const searchResults = document.getElementById('searchResults');
+
+  if (commandName === 'tabs') {
+    // Search only open tabs
+    let results = await searchInstance.search(query);
+    results = results
+      .map(group => ({
+        ...group,
+        items: group.items.filter(item => item.type === 'tab')
+      }))
+      .filter(group => group.items.length > 0);
+
+    if (results.length === 0) {
+      searchResults.innerHTML = '<div class="empty">No matching tabs found</div>';
+      return;
+    }
+
+    selectedIndex = -1;
+    searchResults.innerHTML = renderResults(results, query);
+    return;
+  }
+
+  // Unknown command fallback
   searchResults.innerHTML = `
     <div class="empty">
       <p>Unknown command: ${commandName}</p>
     </div>
   `;
+}
+
+/**
+ * Toggle tabs-only search mode
+ * @param {boolean} enabled - Whether to enable tabs-only mode
+ */
+async function toggleTabsOnlyMode(enabled) {
+  tabsOnlyMode = enabled;
+  updateSearchInputStyle();
+
+  // Re-trigger search if there's a query
+  const searchInput = document.getElementById('searchInput');
+  const query = searchInput.value.trim();
+  if (query) {
+    let results = await searchInstance.search(query);
+    if (tabsOnlyMode) {
+      results = results
+        .map(group => ({
+          ...group,
+          items: group.items.filter(item => item.type === 'tab')
+        }))
+        .filter(group => group.items.length > 0);
+    }
+    const searchResults = document.getElementById('searchResults');
+    if (results.length > 0) {
+      searchResults.innerHTML = renderResults(results, query);
+    } else {
+      searchResults.innerHTML = '<div class="empty">No results found</div>';
+    }
+  }
 }
 
 /**
@@ -1064,6 +1233,121 @@ function showEditPinDialog(url, originalTitle, currentCustomName) {
 /* ================================================================
    BROWSE MODE FUNCTIONS
    ================================================================ */
+
+/**
+ * Initialize Fuse.js instance for Browse Mode filtering
+ */
+function initBrowseFilter() {
+  if (!browseData || !browseData.tabs) return;
+
+  // Create Fuse instance with tabs data
+  browseFuseInstance = new Fuse(browseData.tabs, {
+    keys: [
+      { name: 'title', weight: 0.7 },
+      { name: 'url', weight: 0.3 }
+    ],
+    threshold: 0.4,
+    minMatchCharLength: 2,
+    includeScore: true
+  });
+}
+
+/**
+ * Handle Browse Mode filter input
+ * @param {string} query - Filter query
+ */
+const handleBrowseFilter = debounce((query) => {
+  browseFilterQuery = query.trim();
+  renderBrowseMode();
+  updateBrowseFilterCount();
+}, 100);
+
+/**
+ * Clear Browse Mode filter
+ */
+function clearBrowseFilter() {
+  browseFilterQuery = '';
+  const filterInput = document.getElementById('browseFilterInput');
+  if (filterInput) {
+    filterInput.value = '';
+  }
+  renderBrowseMode();
+  updateBrowseFilterCount();
+}
+
+/**
+ * Update the filter count display
+ */
+function updateBrowseFilterCount() {
+  const countEl = document.getElementById('browseFilterCount');
+  if (!countEl || !browseData) return;
+
+  if (browseFilterQuery) {
+    const filteredTabs = getFilteredTabs();
+    countEl.textContent = `${filteredTabs.length} of ${browseData.totalTabs} tabs`;
+    countEl.classList.add('visible');
+  } else {
+    countEl.classList.remove('visible');
+  }
+}
+
+/**
+ * Get tabs filtered by current browse filter query
+ * @returns {Array} Filtered tabs
+ */
+function getFilteredTabs() {
+  if (!browseData || !browseData.tabs) return [];
+  if (!browseFilterQuery) return browseData.tabs;
+
+  if (!browseFuseInstance) {
+    initBrowseFilter();
+  }
+
+  const results = browseFuseInstance.search(browseFilterQuery);
+  return results.map(r => r.item);
+}
+
+/**
+ * Check if a tab matches the current filter
+ * @param {object} tab - Tab object
+ * @returns {boolean} Whether the tab matches
+ */
+function tabMatchesFilter(tab) {
+  if (!browseFilterQuery) return true;
+
+  const filteredTabs = getFilteredTabs();
+  return filteredTabs.some(t => t.id === tab.id);
+}
+
+/**
+ * Setup Browse Mode filter event listeners
+ */
+function setupBrowseFilter() {
+  if (browseFilterSetup) return;
+
+  const filterInput = document.getElementById('browseFilterInput');
+  if (!filterInput) return;
+
+  browseFilterSetup = true;
+
+  filterInput.addEventListener('input', (e) => {
+    handleBrowseFilter(e.target.value);
+  });
+
+  filterInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (browseFilterQuery) {
+        // Clear filter first
+        clearBrowseFilter();
+        filterInput.focus();
+      } else {
+        // Switch back to search mode if filter is already empty
+        switchMode('search');
+      }
+    }
+  });
+}
 
 /**
  * Find duplicate tabs (same URL appearing multiple times)
@@ -1332,24 +1616,35 @@ function renderBrowseMode() {
 
   // Setup click handlers
   setupBrowseClickHandlers();
+
+  // Update filter count
+  updateBrowseFilterCount();
 }
 
 /**
  * Render a Tab Group
  */
 function renderTabGroup(group) {
+  // Filter tabs if filter is active
+  const filteredTabs = browseFilterQuery
+    ? group.tabs.filter(tab => tabMatchesFilter(tab))
+    : group.tabs;
+
+  // Don't render group if no matching tabs
+  if (filteredTabs.length === 0) return '';
+
   // Default to expanded
   const isExpanded = !expandedGroups.has(group.id); // inverted: set = collapsed
   const colorClass = `tab-group-${group.color || 'grey'}`;
 
-  const tabsHtml = group.tabs.map(tab => renderBrowseTab(tab)).join('');
+  const tabsHtml = filteredTabs.map(tab => renderBrowseTab(tab)).join('');
 
   return `
     <div class="browse-tab-group ${isExpanded ? 'expanded' : ''}" data-group-id="${group.id}">
       <div class="browse-tab-group-header ${colorClass} ${isExpanded ? 'expanded' : ''}">
         <div class="browse-tab-group-color" style="background: ${getGroupColor(group.color)}"></div>
         <span class="browse-tab-group-name">${escapeHtml(group.title || 'Unnamed Group')}</span>
-        <span class="browse-tab-group-count">${group.tabs.length}</span>
+        <span class="browse-tab-group-count">${filteredTabs.length}</span>
         <svg class="browse-domain-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
         </svg>
@@ -1365,13 +1660,21 @@ function renderTabGroup(group) {
  * Render a domain group
  */
 function renderDomainGroup(domain) {
+  // Filter tabs if filter is active
+  const filteredTabs = browseFilterQuery
+    ? domain.tabs.filter(tab => tabMatchesFilter(tab))
+    : domain.tabs;
+
+  // Don't render group if no matching tabs
+  if (filteredTabs.length === 0) return '';
+
   // Default to expanded
   const isExpanded = !expandedDomains.has(domain.domain); // inverted: set = collapsed
-  const favicon = domain.tabs[0]?.favIconUrl || '';
+  const favicon = filteredTabs[0]?.favIconUrl || '';
 
   // Get display name with priority: Chrome storage > domain-names.js > fallback
   const displayName = getDisplayName(domain.domain);
-  const tabsHtml = domain.tabs.map(tab => renderBrowseTab(tab)).join('');
+  const tabsHtml = filteredTabs.map(tab => renderBrowseTab(tab)).join('');
 
   return `
     <div class="browse-domain-group ${isExpanded ? 'expanded' : ''}" data-domain="${escapeHtml(domain.domain)}">
@@ -1383,7 +1686,7 @@ function renderDomainGroup(domain) {
             <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
           </svg>
         </button>
-        <span class="browse-domain-count">${domain.tabs.length}</span>
+        <span class="browse-domain-count">${filteredTabs.length}</span>
         <button class="browse-domain-close-all" title="Close all tabs in this domain" data-domain="${escapeHtml(domain.domain)}">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />

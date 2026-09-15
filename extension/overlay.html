@@ -339,6 +339,49 @@
       margin-right: 8px;
     }
 
+    /* Tabs-only mode indicator */
+    .tabs-only-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-right: 8px;
+    }
+
+    .tabs-only-badge {
+      display: flex;
+      align-items: center;
+      padding: 6px 12px;
+      background: rgba(200, 113, 58, 0.15);
+      border: 1px solid rgba(200, 113, 58, 0.3);
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #c8713a;
+    }
+
+    .tabs-only-clear {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      border: none;
+      background: rgba(154, 145, 138, 0.2);
+      color: #9a918a;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1;
+      transition: all 0.15s;
+    }
+
+    .tabs-only-clear:hover {
+      background: rgba(200, 113, 58, 0.2);
+      color: #c8713a;
+    }
+
     .command-mode-header {
       display: flex;
       align-items: center;
@@ -1409,6 +1452,76 @@
     body.browse-mode .shortcuts-footer {
       display: none;
     }
+
+    /* Browse Mode Filter */
+    .browse-filter-area {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 16px 24px;
+      border-bottom: 1px solid #e8e2da;
+      background: linear-gradient(135deg, rgba(200, 113, 58, 0.08), rgba(200, 113, 58, 0.03));
+    }
+
+    .browse-filter-icon {
+      width: 22px;
+      height: 22px;
+      color: #c8713a;
+      flex-shrink: 0;
+    }
+
+    #browseFilterInput {
+      flex: 1;
+      border: 2px solid rgba(200, 113, 58, 0.3);
+      background: #fff;
+      font-size: 17px;
+      color: #1a1613;
+      outline: none;
+      font-family: 'DM Sans', sans-serif;
+      padding: 10px 16px;
+      border-radius: 10px;
+      transition: all 0.15s;
+    }
+
+    #browseFilterInput:focus {
+      border-color: #c8713a;
+      box-shadow: 0 0 0 3px rgba(200, 113, 58, 0.15);
+    }
+
+    #browseFilterInput::placeholder {
+      color: #b0a8a0;
+    }
+
+    .browse-filter-count {
+      font-size: 13px;
+      color: #c8713a;
+      background: rgba(200, 113, 58, 0.15);
+      padding: 6px 12px;
+      border-radius: 12px;
+      flex-shrink: 0;
+      display: none;
+      font-weight: 600;
+    }
+
+    .browse-filter-count.visible {
+      display: block;
+    }
+
+    .browse-filter-hints {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .browse-filter-hints kbd {
+      background: #e8e2da;
+      padding: 4px 8px;
+      border-radius: 5px;
+      font-size: 10px;
+      font-weight: 600;
+      font-family: 'DM Sans', sans-serif;
+      color: #9a918a;
+    }
   </style>
 </head>
 <body>
@@ -1451,6 +1564,16 @@
     <div id="browseMode" class="mode-content">
       <div class="browse-stats" id="browseStats">
         <!-- Stats will be rendered here -->
+      </div>
+      <div class="browse-filter-area" id="browseFilterArea">
+        <svg class="browse-filter-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+        </svg>
+        <input type="text" id="browseFilterInput" placeholder="Filter tabs..." autocomplete="off">
+        <span class="browse-filter-count" id="browseFilterCount"></span>
+        <div class="browse-filter-hints">
+          <kbd>esc</kbd>
+        </div>
       </div>
       <div class="browse-content" id="browseContent">
         <div class="loading">Loading tabs...</div>
