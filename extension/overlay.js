@@ -400,6 +400,10 @@ function setupSearch() {
       if (activeCommand === 'tabs' && query.trim()) {
         await executeCommand('tabs', query);
       }
+      // /pins shows all pins immediately, and filters as user types
+      if (activeCommand === 'pins') {
+        await executeCommand('pins', query);
+      }
       return;
     }
 
@@ -998,7 +1002,7 @@ function displayCommands(commands) {
   `;
 }
 
-function activateCommand(commandName) {
+async function activateCommand(commandName) {
   const command = COMMANDS.find(cmd => cmd.name === commandName);
   if (!command) return;
 
@@ -1009,6 +1013,11 @@ function activateCommand(commandName) {
   searchInput.value = '';
   searchResults.innerHTML = '';
   updateSearchInputStyle();
+
+  // For /pins, show all pins immediately
+  if (commandName === 'pins') {
+    await executeCommand('pins', '');
+  }
 }
 
 function updateSearchInputStyle() {
