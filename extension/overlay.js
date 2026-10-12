@@ -150,6 +150,12 @@ const COMMANDS = [
     icon: '📑',
     description: 'Search only open tabs',
     placeholder: 'Search open tabs...'
+  },
+  {
+    name: 'pins',
+    icon: '📌',
+    description: 'View all pinned URLs',
+    placeholder: 'Filter pins...'
   }
 ];
 
@@ -1050,6 +1056,69 @@ async function executeCommand(commandName, query) {
 
     selectedIndex = -1;
     searchResults.innerHTML = renderResults(results, query);
+    return;
+  }
+
+  if (commandName === 'pins') {
+    // Show all pinned URLs
+    const pins = searchInstance.userPins || [];
+
+    if (pins.length === 0) {
+      searchResults.innerHTML = '<div class="empty">No pinned URLs yet. Use the pin button 📌 on any search result to pin it.</div>';
+      return;
+    }
+
+    // Filter pins if query is provided
+    let filteredPins = pins;
+    if (query) {
+      const lowerQuery = query.toLowerCase();
+      filteredPins = pins.filter(pin =>
+        (pin.title && pin.title.toLowerCase().includes(lowerQuery)) ||
+        (pin.customName && pin.customName.toLowerCase().includes(lowerQuery)) ||
+        pin.url.toLowerCase().includes(lowerQuery)
+      );
+    }
+
+    if (filteredPins.length === 0) {
+      searchResults.innerHTML = '<div class="empty">No pins match your filter</div>';
+      return;
+    }
+
+    // Render pins list
+    const pinsHtml = filteredPins.map(pin => {
+      const displayTitle = pin.customName || pin.title || pin.url;
+      return `
+        <div class="result-item" data-type="pinned" data-url="${escapeHtml(pin.url)}" data-title="${escapeHtml(displayTitle)}">
+          <span class="result-icon">📌</span>
+          <div class="result-content">
+            <div class="result-title">${escapeHtml(displayTitle)}</div>
+            <div class="result-url">${escapeHtml(pin.url)}</div>
+          </div>
+          <button class="edit-btn" title="Edit custom name" data-url="${escapeHtml(pin.url)}" data-title="${escapeHtml(pin.title || pin.url)}" data-custom-name="${escapeHtml(pin.customName || '')}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+              <path d="m15 5 4 4"/>
+            </svg>
+          </button>
+          <button class="pin-btn pinned" title="Unpin this URL" data-url="${escapeHtml(pin.url)}" data-title="${escapeHtml(displayTitle)}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#d68900" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 17v5"/>
+              <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>
+            </svg>
+          </button>
+        </div>
+      `;
+    }).join('');
+
+    searchResults.innerHTML = `
+      <div class="pins-header">
+        <span class="pins-icon">📌</span>
+        <span class="pins-title">Pinned URLs</span>
+        <span class="pins-count">${filteredPins.length}${query ? ` of ${pins.length}` : ''}</span>
+      </div>
+      ${pinsHtml}
+    `;
+    selectedIndex = -1;
     return;
   }
 
